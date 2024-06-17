@@ -3,14 +3,28 @@ import { getDistricts } from "./DistrictModel.js";
 import { getColorSet } from "./ColorModel.js";
 import TileLayer from "ol/layer/Tile";
 import TileWMS from "ol/source/TileWMS";
+import VectorLayer from 'ol/layer/Vector';
+import VectorSource from 'ol/source/Vector';
+import GeoJSON from 'ol/format/GeoJSON';
+import * as olStyle from 'ol/style';
+import Select from 'ol/interaction/Select.js';
+import { pointerMove } from 'ol/events/condition';
+
+
 
 import * as d3 from "d3";
+
+
 
 export let StatsCtrl = {
   navMap: null,
   district: null,
   barChart: null,
   pieChart: null,
+	cityDistricts: null,    
+  activeFeatures: null,
+	userEvent: true,
+
 
 
   /*- View initialization function -*/
@@ -26,9 +40,9 @@ export let StatsCtrl = {
         new TileLayer({
             name: 'District Boundaries',
             source: new TileWMS({
-                url: 'https://gisedu.itc.utwente.nl/cgi-bin/mapserv.exe?',
+                url: appdata.baseUrl,
                 params: {
-                    'MAP': 'd:/iishome/student/s3182363/gpw/CityApp/api/adminboundaries.map',
+                    'MAP': appdata.mapfile,
                     'LAYERS': 'district',
                     'SERVER': 'MapServer',
                     'TILED': true
@@ -50,6 +64,84 @@ export let StatsCtrl = {
         visible: true,
       })
     );
+    var defaultStyle = new olStyle.Style({
+      stroke: new olStyle.Stroke({
+          color: '#7835ff',
+          width: 1
+      }),
+      fill: new olStyle.Fill({
+          color: 'rgba(0, 0, 0, 0.1)'
+      })
+  });
+
+  this.cityDistricts = new VectorLayer({
+      name: appdata.cityName + ' Districts',
+      source: new VectorSource({
+          format: new GeoJSON(),
+          url: appdata.wfsUrl + '&typename=cbs:district&CITYNAME=' + appdata.cityName
+      }),
+      style: defaultStyle
+  });
+  this.navMap.addLayer(this.cityDistricts);
+  function activeFeatureStyle(){
+    return function(feature){
+        return new olStyle.Style({
+            stroke: new olStyle.Stroke({
+                color: '#777',
+                width: 2
+            }),
+            fill: new olStyle.Fill({
+                color: 'rgba(0, 0, 0, 0.25)'
+            }),
+            text: new olStyle.Text({
+                textAlign: 'center',
+                textBaseline: 'middle',
+                font: 'Bold 15px Arial',
+                overflow: true,
+                text: feature.get('district_code').substring(6,8) + ' - ' +
+                        feature.get('district_name'),
+                fill: new olStyle.Fill({color: '#000'}),
+                stroke: new olStyle.Stroke({color: '#fff', width: 3}),
+                rotation: 0
+            })
+        });
+    };
+};
+
+this.activeFeatures = new Select({
+    layers: [this.cityDistricts],
+    condition: pointerMove,
+    style: activeFeatureStyle()
+});
+this.navMap.addInteraction(this.activeFeatures);
+
+webix.event('sts_map_div', "mouseout",() => {
+  StatsCtrl.activeFeatures.getFeatures().clear();
+});
+
+this.activeFeatures.getFeatures().on('add', function(evt){
+  if (StatsCtrl.userEvent){
+    d3.select("#bar_" + evt.element.get('district_code'))
+      .style("stroke", "#222")
+      .style("stroke-width", 2)
+      .style("fill-opacity", 0.9);
+      var record = StatsCtrl.district.find(function(rec){
+        return rec.code == evt.element.get('district_code')
+    });
+    StatsCtrl.redrawPieChart(record.landuse_2012, record.name);
+  }
+    });
+
+    this.activeFeatures.getFeatures().on('remove', function(evt){
+  if (StatsCtrl.userEvent){
+    d3.select("#bar_" + evt.element.get('district_code'))
+      .style("stroke", "#AAA")
+      .style("stroke-width", 1)
+      .style("fill-opacity", 0.4);
+      StatsCtrl.redrawPieChart(StatsCtrl.pieChart.cityTotals, appdata.cityName);
+
+  }
+    });
 
     getDistricts(appdata.cityName).then(
       (response) => {
@@ -194,6 +286,10 @@ export let StatsCtrl = {
      pc.labelArc = d3.arc()
      .outerRadius(pc.radius + 90)
      .innerRadius(0);
+     pc.labelAngle = function(r){
+      var a = (r.startAngle + r.endAngle) * 90 / Math.PI - 90;
+      return a > 90 ? a - 180 : a;
+  };
 
  pc.obj.selectAll(".pie-label")
      .data(pc.slice(pc.cityTotals))
@@ -203,8 +299,8 @@ export let StatsCtrl = {
      .attr("text-anchor", "middle")
      .attr("dy", ".35em")
      .attr("transform", function(r){
-         return "translate(" + pc.labelArc.centroid(r) + ")";
-     })
+      return "translate(" + pc.labelArc.centroid(r) + ")rotate(" + pc.labelAngle(r) + ")";
+    })
      .text(function(r){ return (r.data.pct > 0.9) ? r.data.pct + '%' : ''; });
  /* Pie Title */
  pc.obj.append('text')
@@ -215,9 +311,47 @@ export let StatsCtrl = {
      .style("text-anchor", "middle")
      .text('Landuse - ' + appdata.cityName + ' (2012)');
 
+
+    /* Animation function */
+		pc.sliceTween = function(r){
+      var i = d3.interpolate(this._current, r);
+      this._current = i(0);
+      return function(t) {
+          return pc.arc(i(t));
+      };
+  };
+
     this.pieChart = pc;
 },
+/**
+     * Redraws the pie chart with landuse data of a selected district or of the whole city
+     * @param {object} pieData - Landuse values for a single district.
+     * @param {string} districtName - Full name of the corresponding district
+     */
+redrawPieChart: function(pieData, districtName){
+  var pc = this.pieChart;
+  pc.obj.selectAll("path")
+      .data(pc.slice(pieData))
+          .transition()
+          .duration(200)
+          .attrTween("d", pc.sliceTween);
 
+  pc.obj.selectAll(".pie-label")
+      .data(pc.slice(pieData))
+          .transition()
+          .duration(200)
+          .attr("transform", function(r){
+              return "translate(" + pc.labelArc.centroid(r) + ")rotate(" + pc.labelAngle(r) + ")";
+          })
+          .text(function(r){
+              return (!r.data.m2) ? '' :
+                  (r.data.pct > 0.9) ? Math.round(r.data.pct) + '%' :
+                      (r.data.pct > 0.4) ? '<1%' : '';
+          });
+
+  pc.obj.select('#pie_title')
+      .text('Landuse in : ' + districtName + ' (2012)');
+    },
   /**
    * Draws a population bar chart after the data of the districts has been received.
    * @param {string} targetPanel - The 'id' of the HTML element that will contain the bar chart.
@@ -234,6 +368,7 @@ export let StatsCtrl = {
       .style("stroke", "#222")
       .style("stroke-width", 2)
       .style("fill-opacity", 0.9);
+			StatsCtrl.redrawPieChart(record.landuse_2012, record.name);
 
        /* Display tooltip including some record data */
        barTooltip.html('<b>' + record.name + '</b><br />' +
@@ -243,6 +378,13 @@ export let StatsCtrl = {
        .duration(50)
        .style("display", "block")
        .style("opacity", 0.8);
+       /* Highlight the corresponding feature on the map */
+       let features = StatsCtrl.cityDistricts.getSource().getFeatures();
+       StatsCtrl.userEvent = false;
+
+       StatsCtrl.activeFeatures.getFeatures().push(
+         features.find(feat => feat.getProperties().district_code === record.code)
+       );
   };
 
   function onMousemoveBar(event){
@@ -250,6 +392,7 @@ export let StatsCtrl = {
        barTooltip
        .style("top", (event.clientY - 55) + "px")
        .style("left", (event.clientX + 2) + "px");
+
   };
 
   function onMouseoutBar(event, record){
@@ -258,10 +401,18 @@ export let StatsCtrl = {
     .style("stroke-width", 1)
     .style("fill-opacity", 0.4);
 
+
+    StatsCtrl.redrawPieChart(StatsCtrl.pieChart.cityTotals, appdata.cityName);
+
      /* Hide the tooltip */
      barTooltip.transition()
      .duration(1)
      .style("display", "none");
+
+            /* Remove any highlighted features from the map */
+            StatsCtrl.activeFeatures.getFeatures().clear();
+            StatsCtrl.userEvent = true;
+
   };
   /*---*/
 
