@@ -1,0 +1,22 @@
+cityApp/
+├── app/
+│   ├── home/
+│   │   ├── HomeController.js
+│   │   └── HomeView.js
+│   ├── statistics/
+│   │   ├── ColorModel.js
+│   │   ├── DistrictsModel.js
+│   │   ├── StatisticsController.js
+│   │   ├── StatisticsView.js
+│   │   └── ViewWindows.js
+│   ├── Application.js
+│   └── Tools.js
+├── api/
+│   ├── adminboundaries.map
+│   ├── districtstats.py
+│   ├── landuseclasses.py
+│   └── .pg
+├── styles/
+│   └── app.css
+├── index.html
+└── package.json
