@@ -6,6 +6,7 @@
 # Ignore dependencies
 /node_modules
 /.parcel-cache
+/dist
 # Ignore environment-specific files
 .env
 .pg

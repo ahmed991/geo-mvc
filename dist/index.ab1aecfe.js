@@ -844,8 +844,22 @@ let StatsCtrl = {
    * Draws a population bar chart after the data of the districts has been received.
    * @param {string} targetPanel - The 'id' of the HTML element that will contain the bar chart.
    */ drawBarChart: function(targetPanel) {
-        console.log(this.district);
-        var bc = new Object();
+        /* Create a tooltip element */ var barTooltip = _d3.select("body").append("div").attr("id", "bar-tooltip").attr("class", "tooltip");
+        /*---*/ function onMouseoverBar(event, record) {
+            _d3.select("#bar_" + record.code).style("stroke", "#222").style("stroke-width", 2).style("fill-opacity", 0.9);
+            /* Display tooltip including some record data */ barTooltip.html("<b>" + record.name + "</b><br />" + webix.Number.format(record.pop_2020, {
+                decimalSize: 0
+            }) + "&nbsp;inh.<br />" + webix.i18n.numberFormat(record.area_km2) + "&nbsp;km&sup2;");
+            barTooltip.transition().duration(50).style("display", "block").style("opacity", 0.8);
+        }
+        function onMousemoveBar(event) {
+            /* Follow the mouse with the tooltip */ barTooltip.style("top", event.clientY - 55 + "px").style("left", event.clientX + 2 + "px");
+        }
+        function onMouseoutBar(event, record) {
+            _d3.select("#bar_" + record.code).style("stroke", "#AAA").style("stroke-width", 1).style("fill-opacity", 0.4);
+            /* Hide the tooltip */ barTooltip.transition().duration(1).style("display", "none");
+        }
+        /*---*/ var bc = new Object();
         bc.panel = webix.$$(targetPanel);
         bc.panel.$view.innerHTML = '<div class="bar_chart" id="' + bc.panel.config.id + '_div"></div>';
         /* Bar chart margins and dimentions */ bc.margin = {
@@ -882,7 +896,7 @@ let StatsCtrl = {
             return bc.y(r.pop_2020);
         }).attr("width", bc.x.bandwidth() * 0.8).attr("height", function(r) {
             return bc.height - bc.y(r.pop_2020);
-        }).style("stroke", "#AAA").style("stroke-width", 1).style("fill", "#CACCCE").style("fill-opacity", 0.4).attr("class", "popbar");
+        }).style("stroke", "#AAA").style("stroke-width", 1).style("fill", "#CACCCE").style("fill-opacity", 0.4).on("mouseover", onMouseoverBar).on("mousemove", onMousemoveBar).on("mouseout", onMouseoutBar);
         /* x axis */ bc.obj.append("g").attr("class", "x axis").attr("transform", "translate(0," + bc.height + ")").call(_d3.axisBottom(bc.x)).append("text").attr("id", "bc_xaxis_label").attr("x", bc.width / 2).attr("y", 35).style("fill", "#404040").style("font-size", "13px").style("font-weight", 400).style("text-anchor", "middle").text("District Codes - (" + appdata.cityName + ")");
         /* y axis */ bc.obj.append("g").attr("class", "y axis").call(_d3.axisLeft(bc.y)).append("text").attr("id", "bc_yaxis_label").attr("x", 5).attr("y", -10).style("fill", "#404040").style("font-size", "13px").style("font-weight", 400).style("text-anchor", "start").text("Number of Inhabitants (2020)");
         this.barChart = bc;
