@@ -9,6 +9,7 @@ import { getTopLeft } from 'ol/extent';
 
 import { createStringXY } from 'ol/coordinate';
 import MousePosition from 'ol/control/MousePosition';
+import ScaleLine from 'ol/control/ScaleLine';
 
 
 // import {transform } from "ol/proj";
@@ -25,6 +26,8 @@ export function createMap(divId) {
     code: "EPSG:28992",
     units: "m",
     extent: nlExtent,
+    getPointResolution: (r) => { return r; }
+
   });
   matrixIds = new Array(15);
   for (let z = 0; z < 15; ++z) {
@@ -67,6 +70,11 @@ export function createMap(divId) {
 		new MousePosition({
 			coordinateFormat: createStringXY(1),
 			className: 'app-mouse-position'
+		})
+	);
+  map.addControl(
+		new ScaleLine({
+			units: 'metric'
 		})
 	);
 
