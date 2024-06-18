@@ -9,10 +9,13 @@ import GeoJSON from 'ol/format/GeoJSON';
 import * as olStyle from 'ol/style';
 import Select from 'ol/interaction/Select.js';
 import { pointerMove } from 'ol/events/condition';
-
+import * as olStyle from 'ol/style';
+import { asArray } from 'ol/color.js';
 
 
 import * as d3 from "d3";
+
+/*--- Color Model ---*/
 
 
 
@@ -23,6 +26,8 @@ export let StatsCtrl = {
   pieChart: null,
 	cityDistricts: null,    
   activeFeatures: null,
+  defaultStyle: null,
+
 	userEvent: true,
 
 
@@ -64,9 +69,9 @@ export let StatsCtrl = {
         visible: true,
       })
     );
-    var defaultStyle = new olStyle.Style({
+    this.defaultStyle = new olStyle.Style({
       stroke: new olStyle.Stroke({
-          color: '#7835ff',
+          color: '#777',
           width: 1
       }),
       fill: new olStyle.Fill({
@@ -80,7 +85,7 @@ export let StatsCtrl = {
           format: new GeoJSON(),
           url: appdata.wfsUrl + '&typename=cbs:district&CITYNAME=' + appdata.cityName
       }),
-      style: defaultStyle
+      style: this.defaultStyle
   });
   this.navMap.addLayer(this.cityDistricts);
   function activeFeatureStyle(){
@@ -226,6 +231,52 @@ this.activeFeatures.getFeatures().on('add', function(evt){
                 console.error(error);
             })
     },
+/**
+     * Display a choropleth for the provided values of a landuse group.
+     * @param {object} choroData - Landuse data values of a district.
+     * @param {string} group - Group identifier to use in the selection of shades for the chroropleth.
+     */
+showChoropleth: function(choroData, group, className){
+        var choroClass, choroStyle, strokeColor, tintNumber, rgb, fillColor;
+        choroClass = d3.scaleLinear().domain([
+            d3.min(choroData, function(r){ return r.pct; }),
+            d3.max(choroData, function(r){ return r.pct; })
+        ]).rangeRound([0, 3]);
+        strokeColor = getColorSet(group).stroke;
+
+        choroStyle = function(){
+            return function(feature, resolution){
+                tintNumber = choroClass(
+                    choroData.find(function(r){
+                        return (r.code == feature.get('district_code'))
+                    }).pct
+                );
+                rgb = asArray(getColorSet(group).tints[tintNumber]);
+                fillColor = 'rgba('+ rgb[0] + ', ' + rgb[1] + ', ' + rgb[2] + ', 0.8)';
+                return new olStyle.Style({
+                    fill: new olStyle.Fill({
+                        color: fillColor
+                    }),
+                    stroke: new olStyle.Stroke({
+                        color: strokeColor,
+                        width: 2
+                    }),
+                    text: new olStyle.Text({
+                        textAlign: 'center',
+                        textBaseline: 'middle',
+                        font: 'Normal 16px Arial',
+                        overflow: true,
+                        text: feature.get('district_code').substring(6),
+                        fill: new olStyle.Fill({color: '#fff'}),
+                        stroke: new olStyle.Stroke({color: strokeColor, width: 3}),
+                        rotation: 0
+                    })
+                });
+            };
+        };
+        this.cityDistricts.setStyle(choroStyle());
+    },
+
    /**
      * Create a pie chart using districts landuse values.
      * @param {string} targetPanel - The 'id' of the HTML element that will contain the pie chart.
@@ -253,12 +304,13 @@ function onMouseoverPie(event, slice){
           }).m2
       }
   });
-  console.log(choroData);
+  StatsCtrl.showChoropleth(choroData, slice.data.group);
 };
 
     function onMouseoutOfPie(){
-        console.log('left the slice')
-    };
+      d3.selectAll('.legend-element')
+      .style('opacity', 1);
+  StatsCtrl.cityDistricts.setStyle(StatsCtrl.defaultStyle);    };
     /*---*/
 
 

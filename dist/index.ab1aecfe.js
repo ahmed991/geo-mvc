@@ -729,6 +729,7 @@ var _style = require("ol/style");
 var _selectJs = require("ol/interaction/Select.js");
 var _selectJsDefault = parcelHelpers.interopDefault(_selectJs);
 var _condition = require("ol/events/condition");
+var _colorJs = require("ol/color.js");
 var _d3 = require("d3");
 let StatsCtrl = {
     navMap: null,
@@ -737,6 +738,7 @@ let StatsCtrl = {
     pieChart: null,
     cityDistricts: null,
     activeFeatures: null,
+    defaultStyle: null,
     userEvent: true,
     /*- View initialization function -*/ onViewReady: function() {
         let mapPanel = webix.$$("sts_map");
@@ -768,9 +770,9 @@ let StatsCtrl = {
             }),
             visible: true
         }));
-        var defaultStyle = new _style.Style({
+        this.defaultStyle = new _style.Style({
             stroke: new _style.Stroke({
-                color: "#7835ff",
+                color: "#777",
                 width: 1
             }),
             fill: new _style.Fill({
@@ -783,7 +785,7 @@ let StatsCtrl = {
                 format: new (0, _geoJSONDefault.default)(),
                 url: appdata.wfsUrl + "&typename=cbs:district&CITYNAME=" + appdata.cityName
             }),
-            style: defaultStyle
+            style: this.defaultStyle
         });
         this.navMap.addLayer(this.cityDistricts);
         function activeFeatureStyle() {
@@ -883,6 +885,59 @@ let StatsCtrl = {
         });
     },
     /**
+     * Display a choropleth for the provided values of a landuse group.
+     * @param {object} choroData - Landuse data values of a district.
+     * @param {string} group - Group identifier to use in the selection of shades for the chroropleth.
+     */ showChoropleth: function(choroData, group, className) {
+        var choroClass, choroStyle, strokeColor, tintNumber, rgb, fillColor;
+        choroClass = _d3.scaleLinear().domain([
+            _d3.min(choroData, function(r) {
+                return r.pct;
+            }),
+            _d3.max(choroData, function(r) {
+                return r.pct;
+            })
+        ]).rangeRound([
+            0,
+            3
+        ]);
+        strokeColor = (0, _colorModelJs.getColorSet)(group).stroke;
+        choroStyle = function() {
+            return function(feature, resolution) {
+                tintNumber = choroClass(choroData.find(function(r) {
+                    return r.code == feature.get("district_code");
+                }).pct);
+                rgb = (0, _colorJs.asArray)((0, _colorModelJs.getColorSet)(group).tints[tintNumber]);
+                fillColor = "rgba(" + rgb[0] + ", " + rgb[1] + ", " + rgb[2] + ", 0.8)";
+                return new _style.Style({
+                    fill: new _style.Fill({
+                        color: fillColor
+                    }),
+                    stroke: new _style.Stroke({
+                        color: strokeColor,
+                        width: 2
+                    }),
+                    text: new _style.Text({
+                        textAlign: "center",
+                        textBaseline: "middle",
+                        font: "Normal 16px Arial",
+                        overflow: true,
+                        text: feature.get("district_code").substring(6),
+                        fill: new _style.Fill({
+                            color: "#fff"
+                        }),
+                        stroke: new _style.Stroke({
+                            color: strokeColor,
+                            width: 3
+                        }),
+                        rotation: 0
+                    })
+                });
+            };
+        };
+        this.cityDistricts.setStyle(choroStyle());
+    },
+    /**
      * Create a pie chart using districts landuse values.
      * @param {string} targetPanel - The 'id' of the HTML element that will contain the pie chart.
      */ drawPieChart: function(targetPanel) {
@@ -903,10 +958,11 @@ let StatsCtrl = {
                     }).m2
                 };
             });
-            console.log(choroData);
+            StatsCtrl.showChoropleth(choroData, slice.data.group);
         }
         function onMouseoutOfPie() {
-            console.log("left the slice");
+            _d3.selectAll(".legend-element").style("opacity", 1);
+            StatsCtrl.cityDistricts.setStyle(StatsCtrl.defaultStyle);
         }
         /*---*/ var pc = new Object;
         pc.panel = webix.$$(targetPanel);
@@ -1046,7 +1102,7 @@ let StatsCtrl = {
     }
 };
 
-},{"../tools.js":"hDXtK","./DistrictModel.js":"dhm2u","./ColorModel.js":"aQlzS","ol/layer/Tile":"3ytzs","ol/source/TileWMS":"KEB4F","ol/layer/Vector":"iTrAy","ol/source/Vector":"9w7Fr","ol/format/GeoJSON":"1bsdX","ol/style":"hEQxF","ol/interaction/Select.js":"iBBOO","ol/events/condition":"iQTYY","d3":"17XFv","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"hDXtK":[function(require,module,exports) {
+},{"../tools.js":"hDXtK","./DistrictModel.js":"dhm2u","./ColorModel.js":"aQlzS","ol/layer/Tile":"3ytzs","ol/source/TileWMS":"KEB4F","ol/layer/Vector":"iTrAy","ol/source/Vector":"9w7Fr","ol/format/GeoJSON":"1bsdX","ol/style":"hEQxF","ol/interaction/Select.js":"iBBOO","ol/events/condition":"iQTYY","ol/color.js":"4tahz","d3":"17XFv","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"hDXtK":[function(require,module,exports) {
 var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
 parcelHelpers.defineInteropFlag(exports);
 // import {transform } from "ol/proj";
@@ -28969,55 +29025,100 @@ const ColorSets = new webix.DataCollection({
             group: "g1",
             stroke: "#d41811",
             /*red*/ fill: "#ec1a13",
-            tints: []
+            tints: [
+                "#f9bab8",
+                "#f47671",
+                "#f15854",
+                "#ec1a13"
+            ]
         },
         {
             group: "g2",
             stroke: "#e65c00",
             /*orange*/ fill: "#ff6600",
-            tints: []
+            tints: [
+                "#ffc299",
+                "#ffa366",
+                "#ff8533",
+                "#ff6600"
+            ]
         },
         {
             group: "g3",
             stroke: "#734d26",
             /*brown*/ fill: "#996633",
-            tints: []
+            tints: [
+                "#e6ccb3",
+                "#d9b38c",
+                "#cc9966",
+                "#bf8040"
+            ]
         },
         {
             group: "g4",
             stroke: "#33cc00",
             /*light-green*/ fill: "#39e600",
-            tints: []
+            tints: [
+                "#d9ffcc",
+                "#8cff66",
+                "#53ff1a",
+                "#39e600"
+            ]
         },
         {
             group: "g5",
             stroke: "#e6b800",
             /*yellow*/ fill: "#ffcc00",
-            tints: []
+            tints: [
+                "#fff5cc",
+                "#ffeb99",
+                "#ffdb4d",
+                "#ffcc00"
+            ]
         },
         {
             group: "g6",
             stroke: "#3c9043",
             /*green*/ fill: "#408000",
-            tints: []
+            tints: [
+                "#c9e8cc",
+                "#a5d9a9",
+                "#6fc376",
+                "#4bb454"
+            ]
         },
         {
             group: "g7",
             stroke: "#005fb3",
             /*blue*/ fill: "#0088ff",
-            tints: []
+            tints: [
+                "#e6f3ff",
+                "#99cfff",
+                "#4dacff",
+                "#0088ff"
+            ]
         },
         {
             group: "g8",
             stroke: "#00b3b3",
             /*cyan*/ fill: "#00cccc",
-            tints: []
+            tints: [
+                "#e6ffff",
+                "#99ffff",
+                "#00ffff",
+                "#00cccc"
+            ]
         },
         {
             group: "g9",
             stroke: "#b034b2",
             /*purple*/ fill: "#c94dcb",
-            tints: []
+            tints: [
+                "#f9ebf9",
+                "#e7b0e8",
+                "#db88dd",
+                "#c94dcb"
+            ]
         }
     ]
 });
