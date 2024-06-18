@@ -886,7 +886,29 @@ let StatsCtrl = {
      * Create a pie chart using districts landuse values.
      * @param {string} targetPanel - The 'id' of the HTML element that will contain the pie chart.
      */ drawPieChart: function(targetPanel) {
-        var pc = new Object;
+        /*---*/ function onMouseoverPie(event, slice) {
+            var className, choroData;
+            _d3.selectAll(".legend-element").style("opacity", function(r) {
+                if (r.code == slice.data.group) className = r.name;
+                return r.code == slice.data.group ? 1 : 0.2;
+            });
+            choroData = StatsCtrl.district.map(function(r) {
+                return {
+                    code: r.code,
+                    pct: r.landuse_2012.find(function(g) {
+                        return g.group == slice.data.group;
+                    }).pct,
+                    m2: r.landuse_2012.find(function(g) {
+                        return g.group == slice.data.group;
+                    }).m2
+                };
+            });
+            console.log(choroData);
+        }
+        function onMouseoutOfPie() {
+            console.log("left the slice");
+        }
+        /*---*/ var pc = new Object;
         pc.panel = webix.$$(targetPanel);
         pc.panel.$view.innerHTML = '<div class="pie_chart" id="' + pc.panel.config.id + '_div"></div>';
         var groupArea, groupKeys, totalArea;
@@ -919,7 +941,7 @@ let StatsCtrl = {
             return "pie_" + r.data.group;
         }).attr("d", pc.arc).style("fill-opacity", 0.6).style("fill", function(r) {
             return (0, _colorModelJs.getColorSet)(r.data.group).fill;
-        }).style("stroke", "#888").style("stroke-width", 0.5);
+        }).style("stroke", "#888").style("stroke-width", 0.5).on("mouseover", onMouseoverPie).on("mouseout", onMouseoutOfPie);
         /* Labels for the various pie slices */ pc.labelArc = _d3.arc().outerRadius(pc.radius + 90).innerRadius(0);
         pc.labelAngle = function(r) {
             var a = (r.startAngle + r.endAngle) * 90 / Math.PI - 90;
