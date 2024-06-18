@@ -11,6 +11,8 @@ import Select from 'ol/interaction/Select.js';
 import { pointerMove } from 'ol/events/condition';
 import * as olStyle from 'ol/style';
 import { asArray } from 'ol/color.js';
+import { ChoroplethLegend,DistrictList  } from './ViewWindows.js'
+
 
 
 import * as d3 from "d3";
@@ -27,7 +29,7 @@ export let StatsCtrl = {
 	cityDistricts: null,    
   activeFeatures: null,
   defaultStyle: null,
-
+	populationBars: null,
 	userEvent: true,
 
 
@@ -154,12 +156,69 @@ this.activeFeatures.getFeatures().on('add', function(evt){
         StatsCtrl.drawBarChart("sts_barchart");
         StatsCtrl.drawPieChart('sts_piechart');
         StatsCtrl.drawPieLegend('sts_pielegend');
+        StatsCtrl.populateDistrictList();
+        webix.event(window, 'resize', () => { StatsCtrl.resizeBarChart(); });
+
       },
       (error) => {
         console.log(error);
       }
     );
   },
+   /**
+     * Redraw the bar chart when the browser window is resized.
+     */
+   resizeBarChart: function(){
+    if (this.barChart){
+        var bc = this.barChart;
+
+        bc.width = bc.panel.$width - bc.margin.left - bc.margin.right - 1;
+        bc.height = bc.panel.$height - bc.margin.top - bc.margin.bottom;
+
+        d3.select('svg#bar_chart')
+            .attr("width", bc.panel.$width);
+
+        bc.x.range([0, bc.width]).padding(0.1);
+
+        bc.obj.selectAll(".x.axis")
+            .attr("transform", "translate(0," + bc.height + ")")
+            .call(d3.axisBottom(bc.x))
+          .select('#bc_xaxis_label')
+            .attr("x", bc.width/2);
+
+        bc.obj.selectAll(".bar")
+            .attr("x", function(r) { return bc.x(r.label); })
+            .attr("width", bc.x.bandwidth()*.8);
+    }
+},
+
+
+  /**
+     * Generate the content of the district list window.
+     */
+  populateDistrictList: function(){
+    let listObject = '<div style="line-height:1.8;"><b>District Names</b></div>';
+    StatsCtrl.district.forEach(function(record){
+        listObject += '<div><span class="district_txt"><b>' + record.label + ':</b> ' +
+            record.name + '</span></div>'
+    });
+    DistrictList.getBody().setHTML(listObject);
+
+    /* compute the optimal width for the window */
+    DistrictList.show();
+    const label = Array.from(document.getElementsByClassName('district_txt'));
+    let listWidth = 0;
+    label.forEach((item) => {
+        listWidth = (listWidth > item.offsetWidth) ? listWidth : item.offsetWidth;
+    });
+    listWidth = (listWidth > 85) ? listWidth : 86;
+
+    DistrictList.define('width', listWidth + 26);
+    DistrictList.define('height', ((StatsCtrl.district.length + 1) * 14.5) + 20);
+    DistrictList.resize();
+    DistrictList.hide();
+},
+
 
       /**
      * Render the pie chart legend
@@ -244,6 +303,40 @@ showChoropleth: function(choroData, group, className){
         ]).rangeRound([0, 3]);
         strokeColor = getColorSet(group).stroke;
 
+        DistrictList.show($$('sts_barchart').getNode(), {
+          pos: 'top',
+          x: $$('sts_map').$width - DistrictList.$width - 5,
+          y: -8
+        });
+
+
+        ChoroplethLegend.show($$('sts_map').getNode(), {pos: 'bottom', x: 5, y: -110});
+
+        let limits = [
+          Math.round(choroClass.domain()[0]),
+          Math.round(choroClass.domain()[1])
+      ];
+      ChoroplethLegend.getBody().setHTML(
+          '<div id="choropleth_legend_div">' +
+              '<span style="line-height: 1.6; text-align:center; display:block">' +
+                  '<b>Hectares in 2021</b><br/></span>' +
+                  limits[0] +
+                  '<span style="float:right;">' +
+                  limits[1] +
+              '&nbsp;</span>' +
+          '</div>'
+      );
+
+      let legendObject = d3.select('#choropleth_legend_div').append("svg");
+      for (let i = 0; i <= 3; i++) {
+          legendObject.append("rect")
+              .attr("x", i*30)
+              .attr("height", 12)
+              .attr("width", 30)
+              .attr("fill", getColorSet(group).tints[i]);
+      };
+
+
         choroStyle = function(){
             return function(feature, resolution){
                 tintNumber = choroClass(
@@ -276,6 +369,30 @@ showChoropleth: function(choroData, group, className){
         };
         this.cityDistricts.setStyle(choroStyle());
     },
+    redrawBars: function(barsData, fillColor, strokeColor, yAxisLabel){
+      var bc = this.barChart;
+      bc.y.domain([0, d3.max(barsData, function(r){
+        return (StatsCtrl.populationBars) ? r.pop_2020 : r.m2/10000;
+      })]);
+
+      bc.obj.selectAll(".bar")
+          .data(barsData)
+          .transition().duration(200)
+          .attr("y", function(r){
+            return bc.y((StatsCtrl.populationBars) ? r.pop_2020 : r.m2/10000);
+          })
+          .attr("height", function(r){
+            return bc.height - bc.y((StatsCtrl.populationBars) ? r.pop_2020 : r.m2/10000);
+          })
+          .style("stroke", strokeColor)
+          .style("fill", fillColor);
+
+      bc.obj.selectAll(".y.axis")
+          .call(d3.axisLeft(bc.y));
+
+      bc.obj.select('#bc_yaxis_label')
+         .text(yAxisLabel);
+  },
 
    /**
      * Create a pie chart using districts landuse values.
@@ -305,12 +422,31 @@ function onMouseoverPie(event, slice){
       }
   });
   StatsCtrl.showChoropleth(choroData, slice.data.group);
+  StatsCtrl.populationBars = false;
+			StatsCtrl.redrawBars(
+                choroData,
+                getColorSet(slice.data.group).fill,
+                getColorSet(slice.data.group).stroke,
+                'Area covered by (' + className + ') in Hectares'
+            );
 };
 
     function onMouseoutOfPie(){
       d3.selectAll('.legend-element')
       .style('opacity', 1);
-  StatsCtrl.cityDistricts.setStyle(StatsCtrl.defaultStyle);    };
+  StatsCtrl.cityDistricts.setStyle(StatsCtrl.defaultStyle); 
+  StatsCtrl.populationBars = true;
+  StatsCtrl.redrawBars(
+            StatsCtrl.district,
+            '#caccce',
+            '#aaa',
+            'Number of Inhabitants (2020)'
+        );
+        ChoroplethLegend.hide();
+        DistrictList.hide();
+
+
+};
     /*---*/
 
 

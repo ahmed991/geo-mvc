@@ -730,6 +730,7 @@ var _selectJs = require("ol/interaction/Select.js");
 var _selectJsDefault = parcelHelpers.interopDefault(_selectJs);
 var _condition = require("ol/events/condition");
 var _colorJs = require("ol/color.js");
+var _viewWindowsJs = require("./ViewWindows.js");
 var _d3 = require("d3");
 let StatsCtrl = {
     navMap: null,
@@ -739,6 +740,7 @@ let StatsCtrl = {
     cityDistricts: null,
     activeFeatures: null,
     defaultStyle: null,
+    populationBars: null,
     userEvent: true,
     /*- View initialization function -*/ onViewReady: function() {
         let mapPanel = webix.$$("sts_map");
@@ -847,9 +849,51 @@ let StatsCtrl = {
             StatsCtrl.drawBarChart("sts_barchart");
             StatsCtrl.drawPieChart("sts_piechart");
             StatsCtrl.drawPieLegend("sts_pielegend");
+            StatsCtrl.populateDistrictList();
+            webix.event(window, "resize", ()=>{
+                StatsCtrl.resizeBarChart();
+            });
         }, (error)=>{
             console.log(error);
         });
+    },
+    /**
+     * Redraw the bar chart when the browser window is resized.
+     */ resizeBarChart: function() {
+        if (this.barChart) {
+            var bc = this.barChart;
+            bc.width = bc.panel.$width - bc.margin.left - bc.margin.right - 1;
+            bc.height = bc.panel.$height - bc.margin.top - bc.margin.bottom;
+            _d3.select("svg#bar_chart").attr("width", bc.panel.$width);
+            bc.x.range([
+                0,
+                bc.width
+            ]).padding(0.1);
+            bc.obj.selectAll(".x.axis").attr("transform", "translate(0," + bc.height + ")").call(_d3.axisBottom(bc.x)).select("#bc_xaxis_label").attr("x", bc.width / 2);
+            bc.obj.selectAll(".bar").attr("x", function(r) {
+                return bc.x(r.label);
+            }).attr("width", bc.x.bandwidth() * .8);
+        }
+    },
+    /**
+     * Generate the content of the district list window.
+     */ populateDistrictList: function() {
+        let listObject = '<div style="line-height:1.8;"><b>District Names</b></div>';
+        StatsCtrl.district.forEach(function(record) {
+            listObject += '<div><span class="district_txt"><b>' + record.label + ":</b> " + record.name + "</span></div>";
+        });
+        (0, _viewWindowsJs.DistrictList).getBody().setHTML(listObject);
+        /* compute the optimal width for the window */ (0, _viewWindowsJs.DistrictList).show();
+        const label = Array.from(document.getElementsByClassName("district_txt"));
+        let listWidth = 0;
+        label.forEach((item)=>{
+            listWidth = listWidth > item.offsetWidth ? listWidth : item.offsetWidth;
+        });
+        listWidth = listWidth > 85 ? listWidth : 86;
+        (0, _viewWindowsJs.DistrictList).define("width", listWidth + 26);
+        (0, _viewWindowsJs.DistrictList).define("height", (StatsCtrl.district.length + 1) * 14.5 + 20);
+        (0, _viewWindowsJs.DistrictList).resize();
+        (0, _viewWindowsJs.DistrictList).hide();
     },
     /**
      * Render the pie chart legend
@@ -902,6 +946,23 @@ let StatsCtrl = {
             3
         ]);
         strokeColor = (0, _colorModelJs.getColorSet)(group).stroke;
+        (0, _viewWindowsJs.DistrictList).show($$("sts_barchart").getNode(), {
+            pos: "top",
+            x: $$("sts_map").$width - (0, _viewWindowsJs.DistrictList).$width - 5,
+            y: -8
+        });
+        (0, _viewWindowsJs.ChoroplethLegend).show($$("sts_map").getNode(), {
+            pos: "bottom",
+            x: 5,
+            y: -110
+        });
+        let limits = [
+            Math.round(choroClass.domain()[0]),
+            Math.round(choroClass.domain()[1])
+        ];
+        (0, _viewWindowsJs.ChoroplethLegend).getBody().setHTML('<div id="choropleth_legend_div"><span style="line-height: 1.6; text-align:center; display:block"><b>Hectares in 2021</b><br/></span>' + limits[0] + '<span style="float:right;">' + limits[1] + "&nbsp;</span>" + "</div>");
+        let legendObject = _d3.select("#choropleth_legend_div").append("svg");
+        for(let i = 0; i <= 3; i++)legendObject.append("rect").attr("x", i * 30).attr("height", 12).attr("width", 30).attr("fill", (0, _colorModelJs.getColorSet)(group).tints[i]);
         choroStyle = function() {
             return function(feature, resolution) {
                 tintNumber = choroClass(choroData.find(function(r) {
@@ -937,6 +998,22 @@ let StatsCtrl = {
         };
         this.cityDistricts.setStyle(choroStyle());
     },
+    redrawBars: function(barsData, fillColor, strokeColor, yAxisLabel) {
+        var bc = this.barChart;
+        bc.y.domain([
+            0,
+            _d3.max(barsData, function(r) {
+                return StatsCtrl.populationBars ? r.pop_2020 : r.m2 / 10000;
+            })
+        ]);
+        bc.obj.selectAll(".bar").data(barsData).transition().duration(200).attr("y", function(r) {
+            return bc.y(StatsCtrl.populationBars ? r.pop_2020 : r.m2 / 10000);
+        }).attr("height", function(r) {
+            return bc.height - bc.y(StatsCtrl.populationBars ? r.pop_2020 : r.m2 / 10000);
+        }).style("stroke", strokeColor).style("fill", fillColor);
+        bc.obj.selectAll(".y.axis").call(_d3.axisLeft(bc.y));
+        bc.obj.select("#bc_yaxis_label").text(yAxisLabel);
+    },
     /**
      * Create a pie chart using districts landuse values.
      * @param {string} targetPanel - The 'id' of the HTML element that will contain the pie chart.
@@ -959,10 +1036,16 @@ let StatsCtrl = {
                 };
             });
             StatsCtrl.showChoropleth(choroData, slice.data.group);
+            StatsCtrl.populationBars = false;
+            StatsCtrl.redrawBars(choroData, (0, _colorModelJs.getColorSet)(slice.data.group).fill, (0, _colorModelJs.getColorSet)(slice.data.group).stroke, "Area covered by (" + className + ") in Hectares");
         }
         function onMouseoutOfPie() {
             _d3.selectAll(".legend-element").style("opacity", 1);
             StatsCtrl.cityDistricts.setStyle(StatsCtrl.defaultStyle);
+            StatsCtrl.populationBars = true;
+            StatsCtrl.redrawBars(StatsCtrl.district, "#caccce", "#aaa", "Number of Inhabitants (2020)");
+            (0, _viewWindowsJs.ChoroplethLegend).hide();
+            (0, _viewWindowsJs.DistrictList).hide();
         }
         /*---*/ var pc = new Object;
         pc.panel = webix.$$(targetPanel);
@@ -1102,7 +1185,7 @@ let StatsCtrl = {
     }
 };
 
-},{"../tools.js":"hDXtK","./DistrictModel.js":"dhm2u","./ColorModel.js":"aQlzS","ol/layer/Tile":"3ytzs","ol/source/TileWMS":"KEB4F","ol/layer/Vector":"iTrAy","ol/source/Vector":"9w7Fr","ol/format/GeoJSON":"1bsdX","ol/style":"hEQxF","ol/interaction/Select.js":"iBBOO","ol/events/condition":"iQTYY","ol/color.js":"4tahz","d3":"17XFv","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"hDXtK":[function(require,module,exports) {
+},{"../tools.js":"hDXtK","./DistrictModel.js":"dhm2u","./ColorModel.js":"aQlzS","ol/layer/Tile":"3ytzs","ol/source/TileWMS":"KEB4F","ol/layer/Vector":"iTrAy","ol/source/Vector":"9w7Fr","ol/format/GeoJSON":"1bsdX","ol/style":"hEQxF","ol/interaction/Select.js":"iBBOO","ol/events/condition":"iQTYY","ol/color.js":"4tahz","./ViewWindows.js":"aoP68","d3":"17XFv","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"hDXtK":[function(require,module,exports) {
 var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
 parcelHelpers.defineInteropFlag(exports);
 // import {transform } from "ol/proj";
@@ -1127,6 +1210,8 @@ var _extent = require("ol/extent");
 var _coordinate = require("ol/coordinate");
 var _mousePosition = require("ol/control/MousePosition");
 var _mousePositionDefault = parcelHelpers.interopDefault(_mousePosition);
+var _scaleLine = require("ol/control/ScaleLine");
+var _scaleLineDefault = parcelHelpers.interopDefault(_scaleLine);
 function createMap(divId) {
     var nlExtent, nlProjection, matrixIds, brtResolutions;
     nlExtent = [
@@ -1138,7 +1223,10 @@ function createMap(divId) {
     nlProjection = new (0, _projectionDefault.default)({
         code: "EPSG:28992",
         units: "m",
-        extent: nlExtent
+        extent: nlExtent,
+        getPointResolution: (r)=>{
+            return r;
+        }
     });
     matrixIds = new Array(15);
     for(let z = 0; z < 15; ++z)matrixIds[z] = "EPSG:28992:" + z;
@@ -1196,10 +1284,13 @@ function createMap(divId) {
         coordinateFormat: (0, _coordinate.createStringXY)(1),
         className: "app-mouse-position"
     }));
+    map.addControl(new (0, _scaleLineDefault.default)({
+        units: "metric"
+    }));
     return map;
 }
 
-},{"ol/Map":"14YFC","ol/View":"8xbkS","ol/layer/Tile":"3ytzs","ol/source/WMTS":"d4nWL","ol/tilegrid/WMTS":"jT45v","ol/proj/Projection":"7HvLt","ol/extent":"6YrVc","ol/coordinate":"85Vu7","ol/control/MousePosition":"3RlUn","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"14YFC":[function(require,module,exports) {
+},{"ol/Map":"14YFC","ol/View":"8xbkS","ol/layer/Tile":"3ytzs","ol/source/WMTS":"d4nWL","ol/tilegrid/WMTS":"jT45v","ol/proj/Projection":"7HvLt","ol/extent":"6YrVc","ol/coordinate":"85Vu7","ol/control/MousePosition":"3RlUn","ol/control/ScaleLine":"4aXFi","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"14YFC":[function(require,module,exports) {
 /**
  * @module ol/Map
  */ var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
@@ -28991,7 +29082,356 @@ var _coordinateJs = require("../coordinate.js");
 }
 exports.default = MousePosition;
 
-},{"./Control.js":"a2mnq","../pointer/EventType.js":"cVfVH","../proj.js":"SznqC","../events.js":"dcspA","../coordinate.js":"85Vu7","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"dhm2u":[function(require,module,exports) {
+},{"./Control.js":"a2mnq","../pointer/EventType.js":"cVfVH","../proj.js":"SznqC","../events.js":"dcspA","../coordinate.js":"85Vu7","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"4aXFi":[function(require,module,exports) {
+/**
+ * @module ol/control/ScaleLine
+ */ var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
+parcelHelpers.defineInteropFlag(exports);
+var _controlJs = require("./Control.js");
+var _controlJsDefault = parcelHelpers.interopDefault(_controlJs);
+var _cssJs = require("../css.js");
+var _projJs = require("../proj.js");
+/**
+ * @type {string}
+ */ const UNITS_PROP = "units";
+/**
+ * @typedef {'degrees' | 'imperial' | 'nautical' | 'metric' | 'us'} Units
+ * Units for the scale line.
+ */ /**
+ * @const
+ * @type {Array<number>}
+ */ const LEADING_DIGITS = [
+    1,
+    2,
+    5
+];
+/**
+ * @const
+ * @type {number}
+ */ const DEFAULT_DPI = 25.4 / 0.28;
+/***
+ * @template Return
+ * @typedef {import("../Observable").OnSignature<import("../Observable").EventTypes, import("../events/Event.js").default, Return> &
+ *   import("../Observable").OnSignature<import("../ObjectEventType").Types|
+ *     'change:units', import("../Object").ObjectEvent, Return> &
+ *   import("../Observable").CombinedOnSignature<import("../Observable").EventTypes|import("../ObjectEventType").Types
+ *     |'change:units', Return>} ScaleLineOnSignature
+ */ /**
+ * @typedef {Object} Options
+ * @property {string} [className] CSS class name. The default is `ol-scale-bar` when configured with
+ * `bar: true`. Otherwise the default is `ol-scale-line`.
+ * @property {number} [minWidth=64] Minimum width in pixels at the OGC default dpi. The width will be
+ * adjusted to match the dpi used.
+ * @property {number} [maxWidth] Maximum width in pixels at the OGC default dpi. The width will be
+ * adjusted to match the dpi used.
+ * @property {function(import("../MapEvent.js").default):void} [render] Function called when the control
+ * should be re-rendered. This is called in a `requestAnimationFrame` callback.
+ * @property {HTMLElement|string} [target] Specify a target if you want the control
+ * to be rendered outside of the map's viewport.
+ * @property {Units} [units='metric'] Units.
+ * @property {boolean} [bar=false] Render scalebars instead of a line.
+ * @property {number} [steps=4] Number of steps the scalebar should use. Use even numbers
+ * for best results. Only applies when `bar` is `true`.
+ * @property {boolean} [text=false] Render the text scale above of the scalebar. Only applies
+ * when `bar` is `true`.
+ * @property {number|undefined} [dpi=undefined] dpi of output device such as printer. Only applies
+ * when `bar` is `true`. If undefined the OGC default screen pixel size of 0.28mm will be assumed.
+ */ /**
+ * @classdesc
+ * A control displaying rough y-axis distances, calculated for the center of the
+ * viewport. For conformal projections (e.g. EPSG:3857, the default view
+ * projection in OpenLayers), the scale is valid for all directions.
+ * No scale line will be shown when the y-axis distance of a pixel at the
+ * viewport center cannot be calculated in the view projection.
+ * By default the scale line will show in the bottom left portion of the map,
+ * but this can be changed by using the css selector `.ol-scale-line`.
+ * When specifying `bar` as `true`, a scalebar will be rendered instead
+ * of a scaleline.
+ * For cartesian measurements of the scaleline, you need to set the
+ * `getPointResolution` method of your projection to simply return the input
+ * value, e.g. `projection.setGetPointResolution(r => r);`
+ *
+ * @api
+ */ class ScaleLine extends (0, _controlJsDefault.default) {
+    /**
+   * @param {Options} [options] Scale line options.
+   */ constructor(options){
+        options = options ? options : {};
+        const element = document.createElement("div");
+        element.style.pointerEvents = "none";
+        super({
+            element: element,
+            render: options.render,
+            target: options.target
+        });
+        /***
+     * @type {ScaleLineOnSignature<import("../events").EventsKey>}
+     */ this.on;
+        /***
+     * @type {ScaleLineOnSignature<import("../events").EventsKey>}
+     */ this.once;
+        /***
+     * @type {ScaleLineOnSignature<void>}
+     */ this.un;
+        const className = options.className !== undefined ? options.className : options.bar ? "ol-scale-bar" : "ol-scale-line";
+        /**
+     * @private
+     * @type {HTMLElement}
+     */ this.innerElement_ = document.createElement("div");
+        this.innerElement_.className = className + "-inner";
+        this.element.className = className + " " + (0, _cssJs.CLASS_UNSELECTABLE);
+        this.element.appendChild(this.innerElement_);
+        /**
+     * @private
+     * @type {?import("../View.js").State}
+     */ this.viewState_ = null;
+        /**
+     * @private
+     * @type {number}
+     */ this.minWidth_ = options.minWidth !== undefined ? options.minWidth : 64;
+        /**
+     * @private
+     * @type {number|undefined}
+     */ this.maxWidth_ = options.maxWidth;
+        /**
+     * @private
+     * @type {boolean}
+     */ this.renderedVisible_ = false;
+        /**
+     * @private
+     * @type {number|undefined}
+     */ this.renderedWidth_ = undefined;
+        /**
+     * @private
+     * @type {string}
+     */ this.renderedHTML_ = "";
+        this.addChangeListener(UNITS_PROP, this.handleUnitsChanged_);
+        this.setUnits(options.units || "metric");
+        /**
+     * @private
+     * @type {boolean}
+     */ this.scaleBar_ = options.bar || false;
+        /**
+     * @private
+     * @type {number}
+     */ this.scaleBarSteps_ = options.steps || 4;
+        /**
+     * @private
+     * @type {boolean}
+     */ this.scaleBarText_ = options.text || false;
+        /**
+     * @private
+     * @type {number|undefined}
+     */ this.dpi_ = options.dpi || undefined;
+    }
+    /**
+   * Return the units to use in the scale line.
+   * @return {Units} The units
+   * to use in the scale line.
+   * @observable
+   * @api
+   */ getUnits() {
+        return this.get(UNITS_PROP);
+    }
+    /**
+   * @private
+   */ handleUnitsChanged_() {
+        this.updateElement_();
+    }
+    /**
+   * Set the units to use in the scale line.
+   * @param {Units} units The units to use in the scale line.
+   * @observable
+   * @api
+   */ setUnits(units) {
+        this.set(UNITS_PROP, units);
+    }
+    /**
+   * Specify the dpi of output device such as printer.
+   * @param {number|undefined} dpi The dpi of output device.
+   * @api
+   */ setDpi(dpi) {
+        this.dpi_ = dpi;
+    }
+    /**
+   * @private
+   */ updateElement_() {
+        const viewState = this.viewState_;
+        if (!viewState) {
+            if (this.renderedVisible_) {
+                this.element.style.display = "none";
+                this.renderedVisible_ = false;
+            }
+            return;
+        }
+        const center = viewState.center;
+        const projection = viewState.projection;
+        const units = this.getUnits();
+        const pointResolutionUnits = units == "degrees" ? "degrees" : "m";
+        let pointResolution = (0, _projJs.getPointResolution)(projection, viewState.resolution, center, pointResolutionUnits);
+        const minWidth = this.minWidth_ * (this.dpi_ || DEFAULT_DPI) / DEFAULT_DPI;
+        const maxWidth = this.maxWidth_ !== undefined ? this.maxWidth_ * (this.dpi_ || DEFAULT_DPI) / DEFAULT_DPI : undefined;
+        let nominalCount = minWidth * pointResolution;
+        let suffix = "";
+        if (units == "degrees") {
+            const metersPerDegree = (0, _projJs.METERS_PER_UNIT).degrees;
+            nominalCount *= metersPerDegree;
+            if (nominalCount < metersPerDegree / 60) {
+                suffix = "\u2033"; // seconds
+                pointResolution *= 3600;
+            } else if (nominalCount < metersPerDegree) {
+                suffix = "\u2032"; // minutes
+                pointResolution *= 60;
+            } else suffix = "\xb0"; // degrees
+        } else if (units == "imperial") {
+            if (nominalCount < 0.9144) {
+                suffix = "in";
+                pointResolution /= 0.0254;
+            } else if (nominalCount < 1609.344) {
+                suffix = "ft";
+                pointResolution /= 0.3048;
+            } else {
+                suffix = "mi";
+                pointResolution /= 1609.344;
+            }
+        } else if (units == "nautical") {
+            pointResolution /= 1852;
+            suffix = "NM";
+        } else if (units == "metric") {
+            if (nominalCount < 1e-6) {
+                suffix = "nm";
+                pointResolution *= 1e9;
+            } else if (nominalCount < 0.001) {
+                suffix = "\u03BCm";
+                pointResolution *= 1000000;
+            } else if (nominalCount < 1) {
+                suffix = "mm";
+                pointResolution *= 1000;
+            } else if (nominalCount < 1000) suffix = "m";
+            else {
+                suffix = "km";
+                pointResolution /= 1000;
+            }
+        } else if (units == "us") {
+            if (nominalCount < 0.9144) {
+                suffix = "in";
+                pointResolution *= 39.37;
+            } else if (nominalCount < 1609.344) {
+                suffix = "ft";
+                pointResolution /= 0.30480061;
+            } else {
+                suffix = "mi";
+                pointResolution /= 1609.3472;
+            }
+        } else throw new Error("Invalid units");
+        let i = 3 * Math.floor(Math.log(minWidth * pointResolution) / Math.log(10));
+        let count, width, decimalCount;
+        let previousCount, previousWidth, previousDecimalCount;
+        while(true){
+            decimalCount = Math.floor(i / 3);
+            const decimal = Math.pow(10, decimalCount);
+            count = LEADING_DIGITS[(i % 3 + 3) % 3] * decimal;
+            width = Math.round(count / pointResolution);
+            if (isNaN(width)) {
+                this.element.style.display = "none";
+                this.renderedVisible_ = false;
+                return;
+            }
+            if (maxWidth !== undefined && width >= maxWidth) {
+                count = previousCount;
+                width = previousWidth;
+                decimalCount = previousDecimalCount;
+                break;
+            } else if (width >= minWidth) break;
+            previousCount = count;
+            previousWidth = width;
+            previousDecimalCount = decimalCount;
+            ++i;
+        }
+        const html = this.scaleBar_ ? this.createScaleBar(width, count, suffix) : count.toFixed(decimalCount < 0 ? -decimalCount : 0) + " " + suffix;
+        if (this.renderedHTML_ != html) {
+            this.innerElement_.innerHTML = html;
+            this.renderedHTML_ = html;
+        }
+        if (this.renderedWidth_ != width) {
+            this.innerElement_.style.width = width + "px";
+            this.renderedWidth_ = width;
+        }
+        if (!this.renderedVisible_) {
+            this.element.style.display = "";
+            this.renderedVisible_ = true;
+        }
+    }
+    /**
+   * @private
+   * @param {number} width The current width of the scalebar.
+   * @param {number} scale The current scale.
+   * @param {string} suffix The suffix to append to the scale text.
+   * @return {string} The stringified HTML of the scalebar.
+   */ createScaleBar(width, scale, suffix) {
+        const resolutionScale = this.getScaleForResolution();
+        const mapScale = resolutionScale < 1 ? Math.round(1 / resolutionScale).toLocaleString() + " : 1" : "1 : " + Math.round(resolutionScale).toLocaleString();
+        const steps = this.scaleBarSteps_;
+        const stepWidth = width / steps;
+        const scaleSteps = [
+            this.createMarker("absolute")
+        ];
+        for(let i = 0; i < steps; ++i){
+            const cls = i % 2 === 0 ? "ol-scale-singlebar-odd" : "ol-scale-singlebar-even";
+            scaleSteps.push("<div><div " + `class="ol-scale-singlebar ${cls}" ` + `style="width: ${stepWidth}px;"` + ">" + "</div>" + this.createMarker("relative") + // render text every second step, except when only 2 steps
+            (i % 2 === 0 || steps === 2 ? this.createStepText(i, width, false, scale, suffix) : "") + "</div>");
+        }
+        // render text at the end
+        scaleSteps.push(this.createStepText(steps, width, true, scale, suffix));
+        const scaleBarText = this.scaleBarText_ ? `<div class="ol-scale-text" style="width: ${width}px;">` + mapScale + "</div>" : "";
+        return scaleBarText + scaleSteps.join("");
+    }
+    /**
+   * Creates a marker at given position
+   * @param {'absolute'|'relative'} position The position, absolute or relative
+   * @return {string} The stringified div containing the marker
+   */ createMarker(position) {
+        const top = position === "absolute" ? 3 : -10;
+        return '<div class="ol-scale-step-marker" ' + `style="position: ${position}; top: ${top}px;"` + "></div>";
+    }
+    /**
+   * Creates the label for a marker marker at given position
+   * @param {number} i The iterator
+   * @param {number} width The width the scalebar will currently use
+   * @param {boolean} isLast Flag indicating if we add the last step text
+   * @param {number} scale The current scale for the whole scalebar
+   * @param {string} suffix The suffix for the scale
+   * @return {string} The stringified div containing the step text
+   */ createStepText(i, width, isLast, scale, suffix) {
+        const length = i === 0 ? 0 : Math.round(scale / this.scaleBarSteps_ * i * 100) / 100;
+        const lengthString = length + (i === 0 ? "" : " " + suffix);
+        const margin = i === 0 ? -3 : width / this.scaleBarSteps_ * -1;
+        const minWidth = i === 0 ? 0 : width / this.scaleBarSteps_ * 2;
+        return '<div class="ol-scale-step-text" style="' + `margin-left: ${margin}px;` + `text-align: ${i === 0 ? "left" : "center"};` + `min-width: ${minWidth}px;` + `left: ${isLast ? width + "px" : "unset"};` + '">' + lengthString + "</div>";
+    }
+    /**
+   * Returns the appropriate scale for the given resolution and units.
+   * @return {number} The appropriate scale.
+   */ getScaleForResolution() {
+        const resolution = (0, _projJs.getPointResolution)(this.viewState_.projection, this.viewState_.resolution, this.viewState_.center, "m");
+        const dpi = this.dpi_ || DEFAULT_DPI;
+        const inchesPerMeter = 1000 / 25.4;
+        return resolution * inchesPerMeter * dpi;
+    }
+    /**
+   * Update the scale line element.
+   * @param {import("../MapEvent.js").default} mapEvent Map event.
+   * @override
+   */ render(mapEvent) {
+        const frameState = mapEvent.frameState;
+        if (!frameState) this.viewState_ = null;
+        else this.viewState_ = frameState.viewState;
+        this.updateElement_();
+    }
+}
+exports.default = ScaleLine;
+
+},{"./Control.js":"a2mnq","../css.js":"lDlNi","../proj.js":"SznqC","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"dhm2u":[function(require,module,exports) {
 /*--- Districts Model ---*/ var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
 parcelHelpers.defineInteropFlag(exports);
 /**
@@ -39570,7 +40010,38 @@ class SelectEvent extends (0, _eventJsDefault.default) {
 }
 exports.default = Select;
 
-},{"../Collection.js":"gReoh","../CollectionEventType.js":"82Ksf","../events/Event.js":"hwXQP","../Feature.js":"liabO","./Interaction.js":"g1FUs","../layer/Vector.js":"iTrAy","../functions.js":"iqv8I","../obj.js":"3ssAG","../style/Style.js":"fW7vC","../array.js":"1Fbic","../util.js":"pLBjQ","../events/condition.js":"iQTYY","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"17XFv":[function(require,module,exports) {
+},{"../Collection.js":"gReoh","../CollectionEventType.js":"82Ksf","../events/Event.js":"hwXQP","../Feature.js":"liabO","./Interaction.js":"g1FUs","../layer/Vector.js":"iTrAy","../functions.js":"iqv8I","../obj.js":"3ssAG","../style/Style.js":"fW7vC","../array.js":"1Fbic","../util.js":"pLBjQ","../events/condition.js":"iQTYY","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"aoP68":[function(require,module,exports) {
+/**
+ * Choropleth Legend Window
+ */ var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
+parcelHelpers.defineInteropFlag(exports);
+parcelHelpers.export(exports, "ChoroplethLegend", ()=>ChoroplethLegend);
+parcelHelpers.export(exports, "DistrictList", ()=>DistrictList);
+const ChoroplethLegend = webix.ui({
+    view: "window",
+    head: false,
+    width: 145,
+    height: 65,
+    body: {
+        view: "template",
+        id: "choropleth_legend",
+        template: ""
+    }
+});
+const DistrictList = webix.ui({
+    view: "window",
+    head: false,
+    autofit: true,
+    width: 400,
+    height: 20,
+    body: {
+        view: "template",
+        id: "district_list",
+        template: ""
+    }
+});
+
+},{"@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"17XFv":[function(require,module,exports) {
 var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
 parcelHelpers.defineInteropFlag(exports);
 var _d3Array = require("d3-array");
