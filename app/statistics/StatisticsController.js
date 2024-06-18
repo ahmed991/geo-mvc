@@ -231,6 +231,41 @@ this.activeFeatures.getFeatures().on('add', function(evt){
      * @param {string} targetPanel - The 'id' of the HTML element that will contain the pie chart.
      */
    drawPieChart: function(targetPanel){
+
+/*---*/
+function onMouseoverPie(event, slice){
+  var className, choroData;
+
+  d3.selectAll('.legend-element')
+      .style('opacity', function(r){
+          if (r.code == slice.data.group){ className = r.name; };
+          return (r.code == slice.data.group) ? 1 : 0.2;
+      });
+
+  choroData = StatsCtrl.district.map(function(r){
+      return {
+          code: r.code,
+          pct: r.landuse_2012.find(function(g){
+              return ( g.group == slice.data.group);
+          }).pct,
+          m2: r.landuse_2012.find(function(g){
+              return ( g.group == slice.data.group);
+          }).m2
+      }
+  });
+  console.log(choroData);
+};
+
+    function onMouseoutOfPie(){
+        console.log('left the slice')
+    };
+    /*---*/
+
+
+
+
+
+
     var pc = new Object;
     pc.panel = webix.$$(targetPanel);
     pc.panel.$view.innerHTML = '<div class="pie_chart" id="' + pc.panel.config.id + '_div"></div>';
@@ -279,7 +314,8 @@ this.activeFeatures.getFeatures().on('add', function(evt){
                 return getColorSet(r.data.group).fill;
             })
      .style("stroke", "#888")
-     .style("stroke-width", 0.5);
+     .style("stroke-width", 0.5).on("mouseover", onMouseoverPie)
+     .on("mouseout", onMouseoutOfPie);
 
 
      /* Labels for the various pie slices */
